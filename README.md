@@ -10,9 +10,11 @@ See the provided main.c in the project for a typical use case.
 
 ## Installation
 
-Just copy PeParser.c and PeParser.h in your project.
+Copy PeParser.c and PeParser.h in your project.
 
-See HOWTO below for example usages.
+You can also use the provided .sln to see an example.
+
+See HOWTO below for typical uses.
 
 ## HOWTO
 
