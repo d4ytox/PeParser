@@ -17,29 +17,30 @@ See HOWTO below for example usages.
 ## HOWTO
 
 ### Targeting a File
+```
+T_PE_PARSER PeParser;
 
-`T_PE_PARSER PeParser;
+PeParserInitialize(&PeParser);
 
-`PeParserInitialize(&PeParser);
+PeParserLoadFile(&PeParser, sFileName); // where sFileName is your targeted PE file name (with full path)
 
-`PeParserLoadFile(&PeParser, sFileName); // where sFileName is your targeted PE file name (with full path)
+PeParserPrintAll(&PeParser); // To print all headers / directories / directories
 
-`PeParserPrintAll(&PeParser); // To print all headers / directories / directories
+PeParserUnloadFile(&PeParser);
 
-`PeParserUnloadFile(&PeParser);
-
-`PeParserClean(&PeParser);
-
+PeParserClean(&PeParser);
+```
 ### Targeting a Module Handle
+```
+T_PE_PARSER PeParser;
 
-`T_PE_PARSER PeParser;
+PeParserInitialize(&PeParser);
 
-`PeParserInitialize(&PeParser);
+PeParserLoadModule(&PeParser, hModule); // where hModule is your targeted PE module pre-loaded handle
 
-`PeParserLoadModule(&PeParser, hModule); // where hModule is your targeted PE module pre-loaded handle
+PeParserPrintAll(&PeParser); // To print all headers / directories / directories
 
-`PeParserPrintAll(&PeParser); // To print all headers / directories / directories
+PeParserUnloadModule(&PeParser);
 
-`PeParserUnloadModule(&PeParser);
-
-`PeParserClean(&PeParser);
+PeParserClean(&PeParser);
+```
