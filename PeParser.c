@@ -4,18 +4,30 @@
 #include <stdio.h>
 #include <windows.h>
 
-BOOL PeParserInitialize(T_PE_PARSER *pPeParser)
+void PeParserResetMembers(T_PE_PARSER* pPeParser)
+{
+	pPeParser->szLoadedFileName[0] = 0;
+	pPeParser->pRawData = NULL;
+	pPeParser->sRawDataSize = 0;
+	pPeParser->pImageDosHeader = NULL;
+	pPeParser->pImageNtHeaders = NULL;
+	pPeParser->pImageFileHeader = NULL;
+	pPeParser->pImageOptionalHeader = NULL;
+	pPeParser->pImageSectionHeader = NULL;
+	pPeParser->pImageExportDirectory = NULL;
+	pPeParser->pImageImportDirectory = NULL;
+	pPeParser->pImageResourceDirectory = NULL;
+	pPeParser->pImageExceptionDirectory = NULL;
+	pPeParser->pBaseRelocationTable = NULL;
+	pPeParser->pTLSDirectory = NULL;
+	pPeParser->pImportAddressTable = NULL;
+}
+
+BOOL PeParserInitialize(T_PE_PARSER* pPeParser)
 {
 	assert(pPeParser != NULL);
 
-	pPeParser->pBase = NULL;
-	pPeParser->sSize = 0;
-	pPeParser->pImgDosHdr = NULL;
-	pPeParser->pImgNtHdrs = NULL;
-	pPeParser->pImgFileHdr = NULL;
-	pPeParser->pImgOptHdr = NULL;
-	pPeParser->pImgSectionHdr = NULL;
-	pPeParser->pImgExportDir = NULL;
+	PeParserResetMembers(pPeParser);
 	return TRUE;
 }
 
@@ -23,12 +35,12 @@ BOOL PeParserHasLoaded(T_PE_PARSER* pPeParser)
 {
 	assert(pPeParser != NULL);
 
-	return pPeParser->pBase != NULL
-		&& pPeParser->sSize != 0
-		&& pPeParser->pImgDosHdr != NULL
-		&& pPeParser->pImgNtHdrs != NULL
-		&& pPeParser->pImgFileHdr != NULL
-		&& pPeParser->pImgOptHdr != NULL;
+	return pPeParser->pRawData != NULL
+		&& pPeParser->sRawDataSize != 0
+		&& pPeParser->pImageDosHeader != NULL
+		&& pPeParser->pImageNtHeaders != NULL
+		&& pPeParser->pImageFileHeader != NULL
+		&& pPeParser->pImageOptionalHeader != NULL;
 }
 
 BOOL PeParserUnload(T_PE_PARSER* pPeParser)
@@ -61,27 +73,27 @@ BOOL PeParserLoadFileBuffer(T_PE_PARSER* pPeParser, LPCWSTR lpFileName)
 		goto _End;
 	}
 
-	pPeParser->sSize = GetFileSize(hFile, NULL);
-	if (pPeParser->sSize == 0)
+	pPeParser->sRawDataSize = GetFileSize(hFile, NULL);
+	if (pPeParser->sRawDataSize == 0)
 	{
 		printf("[!] GetFileSize Failed with Error: %d\n", GetLastError());
 		bResult = FALSE;
 		goto _End;
 	}
 
-	pPeParser->pBase = (PBYTE)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, pPeParser->sSize);
-	if (pPeParser->pBase == NULL)
+	pPeParser->pRawData = (PBYTE)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, pPeParser->sRawDataSize);
+	if (pPeParser->pRawData == NULL)
 	{
 		printf("[!] HeapAlloc Failed with Error: %d\n", GetLastError());
 		bResult = FALSE;
 		goto _End;
 	}
 
-	if (!ReadFile(hFile, pPeParser->pBase, pPeParser->sSize, &dwNumberOfBytesRead, NULL) || pPeParser->sSize != dwNumberOfBytesRead)
+	if (!ReadFile(hFile, pPeParser->pRawData, pPeParser->sRawDataSize, &dwNumberOfBytesRead, NULL) || pPeParser->sRawDataSize != dwNumberOfBytesRead)
 	{
 		printf("[!] ReadFile Failed with Error: %d\n", GetLastError());
-		printf("[!] Bytes Read : %d of : %d \n", dwNumberOfBytesRead, pPeParser->sSize);
-		HeapFree(GetProcessHeap(), 0, pPeParser->pBase);
+		printf("[!] Bytes Read : %d of : %d \n", dwNumberOfBytesRead, pPeParser->sRawDataSize);
+		HeapFree(GetProcessHeap(), 0, pPeParser->pRawData);
 		bResult = FALSE;
 		goto _End;
 	}
@@ -91,18 +103,18 @@ _End:
 		CloseHandle(hFile);
 	if (!bResult)
 	{
-		pPeParser->pBase = NULL;
-		pPeParser->sSize = 0;
+		pPeParser->pRawData = NULL;
+		pPeParser->sRawDataSize = 0;
 	}
 	return bResult;
 }
 
 BOOL PeParserLoadDosHeader(T_PE_PARSER* pPeParser)
 {
-	assert(pPeParser != NULL && pPeParser->pBase != NULL);
+	assert(pPeParser != NULL && pPeParser->pRawData != NULL);
 
-	pPeParser->pImgDosHdr = (PIMAGE_DOS_HEADER)pPeParser->pBase;
-	if (pPeParser->pImgDosHdr->e_magic != IMAGE_DOS_SIGNATURE)
+	pPeParser->pImageDosHeader = (PIMAGE_DOS_HEADER)pPeParser->pRawData;
+	if (pPeParser->pImageDosHeader->e_magic != IMAGE_DOS_SIGNATURE)
 	{
 		printf("[!] Invalid DOS Header.\n");
 		PeParserClean(pPeParser);
@@ -113,10 +125,10 @@ BOOL PeParserLoadDosHeader(T_PE_PARSER* pPeParser)
 
 BOOL PeParserLoadNtHeaders(T_PE_PARSER* pPeParser)
 {
-	assert(pPeParser != NULL && pPeParser->pBase != NULL && pPeParser->pImgDosHdr != NULL);
+	assert(pPeParser != NULL && pPeParser->pRawData != NULL && pPeParser->pImageDosHeader != NULL);
 
-	pPeParser->pImgNtHdrs = (PIMAGE_NT_HEADERS)(pPeParser->pBase + pPeParser->pImgDosHdr->e_lfanew);
-	if (pPeParser->pImgNtHdrs->Signature != IMAGE_NT_SIGNATURE)
+	pPeParser->pImageNtHeaders = (PIMAGE_NT_HEADERS)(pPeParser->pRawData + pPeParser->pImageDosHeader->e_lfanew);
+	if (pPeParser->pImageNtHeaders->Signature != IMAGE_NT_SIGNATURE)
 	{
 		printf("[!] Invalid NT Header.\n");
 		PeParserClean(pPeParser);
@@ -127,18 +139,18 @@ BOOL PeParserLoadNtHeaders(T_PE_PARSER* pPeParser)
 
 BOOL PeParserLoadFileHeader(T_PE_PARSER* pPeParser)
 {
-	assert(pPeParser != NULL && pPeParser->pImgNtHdrs != NULL);
+	assert(pPeParser != NULL && pPeParser->pImageNtHeaders != NULL);
 
-	pPeParser->pImgFileHdr = &pPeParser->pImgNtHdrs->FileHeader;
+	pPeParser->pImageFileHeader = &pPeParser->pImageNtHeaders->FileHeader;
 	return TRUE;
 }
 
 BOOL PeParserLoadOptionalHeader(T_PE_PARSER* pPeParser)
 {
-	assert(pPeParser != NULL && pPeParser->pImgNtHdrs != NULL);
+	assert(pPeParser != NULL && pPeParser->pImageNtHeaders != NULL);
 
-	pPeParser->pImgOptHdr = &pPeParser->pImgNtHdrs->OptionalHeader;
-	if (pPeParser->pImgOptHdr->Magic != IMAGE_NT_OPTIONAL_HDR_MAGIC)
+	pPeParser->pImageOptionalHeader = &pPeParser->pImageNtHeaders->OptionalHeader;
+	if (pPeParser->pImageOptionalHeader->Magic != IMAGE_NT_OPTIONAL_HDR_MAGIC)
 	{
 		printf("[!] Invalid Optional Header.\n");
 		return FALSE;
@@ -148,17 +160,65 @@ BOOL PeParserLoadOptionalHeader(T_PE_PARSER* pPeParser)
 
 BOOL PeParserLoadSectionHeader(T_PE_PARSER* pPeParser)
 {
-	assert(pPeParser != NULL && pPeParser->pImgNtHdrs != NULL);
+	assert(pPeParser != NULL && pPeParser->pImageNtHeaders != NULL);
 
-	pPeParser->pImgSectionHdr = (PIMAGE_SECTION_HEADER)(((PBYTE)pPeParser->pImgNtHdrs) + sizeof(IMAGE_NT_HEADERS));
+	pPeParser->pImageSectionHeader = (PIMAGE_SECTION_HEADER)(((PBYTE)pPeParser->pImageNtHeaders) + sizeof(IMAGE_NT_HEADERS));
 	return TRUE;
 }
 
 BOOL PeParserLoadExportDirectory(T_PE_PARSER* pPeParser)
 {
-	assert(pPeParser != NULL && pPeParser->pBase != NULL && pPeParser->pImgOptHdr != NULL);
+	assert(pPeParser != NULL && pPeParser->pRawData != NULL && pPeParser->pImageOptionalHeader != NULL);
 
-	pPeParser->pImgExportDir = (PIMAGE_EXPORT_DIRECTORY)(pPeParser->pBase + pPeParser->pImgOptHdr->DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress);
+	pPeParser->pImageExportDirectory = (PIMAGE_EXPORT_DIRECTORY)(pPeParser->pRawData + pPeParser->pImageOptionalHeader->DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress);
+	return TRUE;
+}
+
+BOOL PeParserLoadImportDirectory(T_PE_PARSER* pPeParser)
+{
+	assert(pPeParser != NULL && pPeParser->pRawData != NULL && pPeParser->pImageOptionalHeader != NULL);
+
+	pPeParser->pImageImportDirectory = (PVOID)(pPeParser->pRawData + pPeParser->pImageOptionalHeader->DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress);
+	return TRUE;
+}
+
+BOOL PeParserLoadResourceDirectory(T_PE_PARSER* pPeParser)
+{
+	assert(pPeParser != NULL && pPeParser->pRawData != NULL && pPeParser->pImageOptionalHeader != NULL);
+
+	pPeParser->pImageResourceDirectory = (PVOID)(pPeParser->pRawData + pPeParser->pImageOptionalHeader->DataDirectory[IMAGE_DIRECTORY_ENTRY_RESOURCE].VirtualAddress);
+	return TRUE;
+}
+
+BOOL PeParserLoadExceptionDirectory(T_PE_PARSER* pPeParser)
+{
+	assert(pPeParser != NULL && pPeParser->pRawData != NULL && pPeParser->pImageOptionalHeader != NULL);
+
+	pPeParser->pImageExceptionDirectory = (PVOID)(pPeParser->pRawData + pPeParser->pImageOptionalHeader->DataDirectory[IMAGE_DIRECTORY_ENTRY_EXCEPTION].VirtualAddress);
+	return TRUE;
+}
+
+BOOL PeParserLoadBaseRelocationTable(T_PE_PARSER* pPeParser)
+{
+	assert(pPeParser != NULL && pPeParser->pRawData != NULL && pPeParser->pImageOptionalHeader != NULL);
+
+	pPeParser->pBaseRelocationTable = (PVOID)(pPeParser->pRawData + pPeParser->pImageOptionalHeader->DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC].VirtualAddress);
+	return TRUE;
+}
+
+BOOL PeParserLoadTLSDirectory(T_PE_PARSER* pPeParser)
+{
+	assert(pPeParser != NULL && pPeParser->pRawData != NULL && pPeParser->pImageOptionalHeader != NULL);
+
+	pPeParser->pTLSDirectory = (PVOID)(pPeParser->pRawData + pPeParser->pImageOptionalHeader->DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS].VirtualAddress);
+	return TRUE;
+}
+
+BOOL PeParserLoadImportAddressTable(T_PE_PARSER* pPeParser)
+{
+	assert(pPeParser != NULL && pPeParser->pRawData != NULL && pPeParser->pImageOptionalHeader != NULL);
+
+	pPeParser->pImportAddressTable = (PVOID)(pPeParser->pRawData + pPeParser->pImageOptionalHeader->DataDirectory[IMAGE_DIRECTORY_ENTRY_IAT].VirtualAddress);
 	return TRUE;
 }
 
@@ -171,7 +231,13 @@ BOOL PeParserLoadAll(T_PE_PARSER* pPeParser)
 		&& PeParserLoadFileHeader(pPeParser)
 		&& PeParserLoadOptionalHeader(pPeParser)
 		&& PeParserLoadSectionHeader(pPeParser)
-		&& PeParserLoadExportDirectory(pPeParser);
+		&& PeParserLoadExportDirectory(pPeParser)
+		&& PeParserLoadImportDirectory(pPeParser)
+		&& PeParserLoadResourceDirectory(pPeParser)
+		&& PeParserLoadExceptionDirectory(pPeParser)
+		&& PeParserLoadBaseRelocationTable(pPeParser)
+		&& PeParserLoadTLSDirectory(pPeParser)
+		&& PeParserLoadImportAddressTable(pPeParser);
 }
 
 BOOL PeParserLoadFile(T_PE_PARSER* pPeParser, LPCWSTR lpFileName)
@@ -185,8 +251,8 @@ BOOL PeParserLoadFile(T_PE_PARSER* pPeParser, LPCWSTR lpFileName)
 		return FALSE;
 	if (!PeParserLoadAll(pPeParser))
 		return FALSE;
-	lstrcpyW(pPeParser->szLoadedFile, lpFileName);
-	printf("[i] File \"%S\" Loaded. \n", pPeParser->szLoadedFile);
+	lstrcpyW(pPeParser->szLoadedFileName, lpFileName);
+	printf("[i] File \"%S\" Loaded. \n", pPeParser->szLoadedFileName);
 	return TRUE;
 }
 
@@ -194,7 +260,7 @@ BOOL PeParserUnloadFile(T_PE_PARSER* pPeParser)
 {
 	assert(pPeParser != NULL);
 
-	printf("[i] Unloading PE File \"%S\":\n", pPeParser->szLoadedFile);
+	printf("[i] Unloading PE File \"%S\":\n", pPeParser->szLoadedFileName);
 	return PeParserUnload(pPeParser);
 }
 
@@ -202,7 +268,7 @@ BOOL PeParserHasLoadedFile(T_PE_PARSER* pPeParser)
 {
 	assert(pPeParser != NULL);
 
-	return pPeParser->szLoadedFile[0] != 0
+	return pPeParser->szLoadedFileName[0] != 0
 		&& PeParserHasLoaded(pPeParser);
 }
 
@@ -213,8 +279,8 @@ BOOL PeParserLoadModule(T_PE_PARSER* pPeParser, HANDLE hModule)
 	printf("[i] Loading PE Module:\n");
 	if (PeParserHasLoaded(pPeParser))
 		PeParserUnload(pPeParser);
-	pPeParser->pBase = (PBYTE)hModule;
-	pPeParser->sSize = 1; // TODO: Calc the size of hMdodule
+	pPeParser->pRawData = (PBYTE)hModule;
+	pPeParser->sRawDataSize = 1; // TODO: Calc the size of hMdodule
 	if (!PeParserLoadAll(pPeParser))
 		return FALSE;
 	printf("[i] PE Module Loaded. \n");
@@ -233,29 +299,29 @@ BOOL PeParserHasLoadedModule(T_PE_PARSER* pPeParser)
 {
 	assert(pPeParser != NULL);
 
-	return pPeParser->szLoadedFile[0] == 0
+	return pPeParser->szLoadedFileName[0] == 0
 		&& PeParserHasLoaded(pPeParser);
 }
 
 PDWORD PeParserGetExportDirectoryFunctionNameArray(T_PE_PARSER* pPeParser)
 {
-	assert(pPeParser != NULL && pPeParser->pBase != NULL && pPeParser->pImgExportDir != NULL);
+	assert(pPeParser != NULL && pPeParser->pRawData != NULL && pPeParser->pImageExportDirectory != NULL);
 
-	return (PDWORD)(pPeParser->pBase + pPeParser->pImgExportDir->AddressOfNames);
+	return (PDWORD)(pPeParser->pRawData + pPeParser->pImageExportDirectory->AddressOfNames);
 }
 
 PDWORD PeParserGetExportDirectoryFunctionAddressArray(T_PE_PARSER* pPeParser)
 {
-	assert(pPeParser != NULL && pPeParser->pBase != NULL && pPeParser->pImgExportDir != NULL);
+	assert(pPeParser != NULL && pPeParser->pRawData != NULL && pPeParser->pImageExportDirectory != NULL);
 
-	return (PDWORD)(pPeParser->pBase + pPeParser->pImgExportDir->AddressOfFunctions);
+	return (PDWORD)(pPeParser->pRawData + pPeParser->pImageExportDirectory->AddressOfFunctions);
 }
 
 PWORD PeParserGetExportDirectoryFunctionOrdinalArray(T_PE_PARSER* pPeParser)
 {
-	assert(pPeParser != NULL && pPeParser->pBase != NULL && pPeParser->pImgExportDir != NULL);
+	assert(pPeParser != NULL && pPeParser->pRawData != NULL && pPeParser->pImageExportDirectory != NULL);
 
-	return (PWORD)(pPeParser->pBase + pPeParser->pImgExportDir->AddressOfNameOrdinals);
+	return (PWORD)(pPeParser->pRawData + pPeParser->pImageExportDirectory->AddressOfNameOrdinals);
 }
 
 BOOL PeParserPrintFileHeader(T_PE_PARSER* pPeParser)
@@ -268,24 +334,24 @@ BOOL PeParserPrintFileHeader(T_PE_PARSER* pPeParser)
 		return FALSE;
 	}
 
-	printf("\n[i] Printing \"%S\" PE File Header:\n", pPeParser->szLoadedFile);
+	printf("\n[i] Printing \"%S\" PE File Header:\n", pPeParser->szLoadedFileName);
 
-	if (pPeParser->pImgFileHdr->Characteristics & IMAGE_FILE_EXECUTABLE_IMAGE)
+	if (pPeParser->pImageFileHeader->Characteristics & IMAGE_FILE_EXECUTABLE_IMAGE)
 	{
 
 		printf("\t[i] PE File Detected As : ");
 
-		if (pPeParser->pImgFileHdr->Characteristics & IMAGE_FILE_DLL)
+		if (pPeParser->pImageFileHeader->Characteristics & IMAGE_FILE_DLL)
 			printf("DLL\n");
-		else if (pPeParser->pImgFileHdr->Characteristics & IMAGE_SUBSYSTEM_NATIVE)
+		else if (pPeParser->pImageFileHeader->Characteristics & IMAGE_SUBSYSTEM_NATIVE)
 			printf("SYS\n");
 		else
 			printf("EXE\n");
 	}
 
-	printf("\t[i] File Arch : %s \n", pPeParser->pImgFileHdr->Machine == IMAGE_FILE_MACHINE_I386 ? "x32" : "x64");
-	printf("\t[i] Number Of Sections : %d \n", pPeParser->pImgFileHdr->NumberOfSections);
-	printf("\t[i] Size Of The Optional Header : %d Byte \n", pPeParser->pImgFileHdr->SizeOfOptionalHeader);
+	printf("\t[i] File Arch : %s \n", pPeParser->pImageFileHeader->Machine == IMAGE_FILE_MACHINE_I386 ? "x32" : "x64");
+	printf("\t[i] Number Of Sections : %d \n", pPeParser->pImageFileHeader->NumberOfSections);
+	printf("\t[i] Size Of The Optional Header : %d Byte \n", pPeParser->pImageFileHeader->SizeOfOptionalHeader);
 	return TRUE;
 }
 
@@ -299,57 +365,57 @@ BOOL PeParserPrintOptionalHeader(T_PE_PARSER* pPeParser)
 		return FALSE;
 	}
 
-	printf("\n[i] Printing \"%S\" PE Optional Header:\n", pPeParser->szLoadedFile);
+	printf("\n[i] Printing \"%S\" PE Optional Header:\n", pPeParser->szLoadedFileName);
 
-	printf("\t[i] File Arch (Alternate) : %s \n", pPeParser->pImgOptHdr->Magic == IMAGE_NT_OPTIONAL_HDR32_MAGIC ? "x32" : "x64");
+	printf("\t[i] File Arch (Alternate) : %s \n", pPeParser->pImageOptionalHeader->Magic == IMAGE_NT_OPTIONAL_HDR32_MAGIC ? "x32" : "x64");
 
-	printf("\t[+] Size Of Code Section : %d \n", pPeParser->pImgOptHdr->SizeOfCode);
-	printf("\t[+] Address Of Code Section : 0x%p \n\t\t[RVA : 0x%0.8X]\n", (PVOID)(pPeParser->pBase + pPeParser->pImgOptHdr->BaseOfCode), pPeParser->pImgOptHdr->BaseOfCode);
-	printf("\t[+] Size Of Initialized Data : %d \n", pPeParser->pImgOptHdr->SizeOfInitializedData);
-	printf("\t[+] Size Of Unitialized Data : %d \n", pPeParser->pImgOptHdr->SizeOfUninitializedData);
-	printf("\t[+] Preferable Mapping Address : 0x%p \n", (PVOID)pPeParser->pImgOptHdr->ImageBase);
-	printf("\t[+] Required Version : %d.%d \n", pPeParser->pImgOptHdr->MajorOperatingSystemVersion, pPeParser->pImgOptHdr->MinorOperatingSystemVersion);
-	printf("\t[+] Address Of The Entry Point : 0x%p \n\t\t[RVA : 0x%0.8X]\n", (PVOID)(pPeParser->pBase + pPeParser->pImgOptHdr->AddressOfEntryPoint), pPeParser->pImgOptHdr->AddressOfEntryPoint);
-	printf("\t[+] Size Of The Image : %d \n", pPeParser->pImgOptHdr->SizeOfImage);
-	printf("\t[+] File CheckSum : 0x%0.8X \n", pPeParser->pImgOptHdr->CheckSum);
-	printf("\t[+] Number of entries in the DataDirectory array : %d \n", pPeParser->pImgOptHdr->NumberOfRvaAndSizes); // this is the same as `IMAGE_NUMBEROF_DIRECTORY_ENTRIES` - `16`
+	printf("\t[+] Size Of Code Section : %d \n", pPeParser->pImageOptionalHeader->SizeOfCode);
+	printf("\t[+] Address Of Code Section : 0x%p \n\t\t[RVA : 0x%0.8X]\n", (PVOID)(pPeParser->pRawData + pPeParser->pImageOptionalHeader->BaseOfCode), pPeParser->pImageOptionalHeader->BaseOfCode);
+	printf("\t[+] Size Of Initialized Data : %d \n", pPeParser->pImageOptionalHeader->SizeOfInitializedData);
+	printf("\t[+] Size Of Unitialized Data : %d \n", pPeParser->pImageOptionalHeader->SizeOfUninitializedData);
+	printf("\t[+] Preferable Mapping Address : 0x%p \n", (PVOID)pPeParser->pImageOptionalHeader->ImageBase);
+	printf("\t[+] Required Version : %d.%d \n", pPeParser->pImageOptionalHeader->MajorOperatingSystemVersion, pPeParser->pImageOptionalHeader->MinorOperatingSystemVersion);
+	printf("\t[+] Address Of The Entry Point : 0x%p \n\t\t[RVA : 0x%0.8X]\n", (PVOID)(pPeParser->pRawData + pPeParser->pImageOptionalHeader->AddressOfEntryPoint), pPeParser->pImageOptionalHeader->AddressOfEntryPoint);
+	printf("\t[+] Size Of The Image : %d \n", pPeParser->pImageOptionalHeader->SizeOfImage);
+	printf("\t[+] File CheckSum : 0x%0.8X \n", pPeParser->pImageOptionalHeader->CheckSum);
+	printf("\t[+] Number of entries in the DataDirectory array : %d \n", pPeParser->pImageOptionalHeader->NumberOfRvaAndSizes); // this is the same as `IMAGE_NUMBEROF_DIRECTORY_ENTRIES` - `16`
 
-	printf("\n[i] Printing \"%S\" PE Directories:\n", pPeParser->szLoadedFile);
+	printf("\n[i] Printing \"%S\" PE Directories:\n", pPeParser->szLoadedFileName);
 
 	printf("\t[*] Export Directory At 0x%p Of Size : %d \n\t\t[RVA : 0x%0.8X]\n",
-		(PVOID)(pPeParser->pImgExportDir),
-		pPeParser->pImgOptHdr->DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].Size,
-		pPeParser->pImgOptHdr->DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress);
+		(PVOID)(pPeParser->pImageExportDirectory),
+		pPeParser->pImageOptionalHeader->DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].Size,
+		pPeParser->pImageOptionalHeader->DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress);
 
 	printf("\t[*] Import Directory At 0x%p Of Size : %d \n\t\t[RVA : 0x%0.8X]\n",
-		(PVOID)(pPeParser->pBase + pPeParser->pImgOptHdr->DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress),
-		pPeParser->pImgOptHdr->DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].Size,
-		pPeParser->pImgOptHdr->DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress);
+		pPeParser->pImageImportDirectory,
+		pPeParser->pImageOptionalHeader->DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].Size,
+		pPeParser->pImageOptionalHeader->DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress);
 
 	printf("\t[*] Resource Directory At 0x%p Of Size : %d \n\t\t[RVA : 0x%0.8X]\n",
-		(PVOID)(pPeParser->pBase + pPeParser->pImgOptHdr->DataDirectory[IMAGE_DIRECTORY_ENTRY_RESOURCE].VirtualAddress),
-		pPeParser->pImgOptHdr->DataDirectory[IMAGE_DIRECTORY_ENTRY_RESOURCE].Size,
-		pPeParser->pImgOptHdr->DataDirectory[IMAGE_DIRECTORY_ENTRY_RESOURCE].VirtualAddress);
+		pPeParser->pImageResourceDirectory,
+		pPeParser->pImageOptionalHeader->DataDirectory[IMAGE_DIRECTORY_ENTRY_RESOURCE].Size,
+		pPeParser->pImageOptionalHeader->DataDirectory[IMAGE_DIRECTORY_ENTRY_RESOURCE].VirtualAddress);
 
 	printf("\t[*] Exception Directory At 0x%p Of Size : %d \n\t\t[RVA : 0x%0.8X]\n",
-		(PVOID)(pPeParser->pBase + pPeParser->pImgOptHdr->DataDirectory[IMAGE_DIRECTORY_ENTRY_EXCEPTION].VirtualAddress),
-		pPeParser->pImgOptHdr->DataDirectory[IMAGE_DIRECTORY_ENTRY_EXCEPTION].Size,
-		pPeParser->pImgOptHdr->DataDirectory[IMAGE_DIRECTORY_ENTRY_EXCEPTION].VirtualAddress);
+		pPeParser->pImageExceptionDirectory,
+		pPeParser->pImageOptionalHeader->DataDirectory[IMAGE_DIRECTORY_ENTRY_EXCEPTION].Size,
+		pPeParser->pImageOptionalHeader->DataDirectory[IMAGE_DIRECTORY_ENTRY_EXCEPTION].VirtualAddress);
 
 	printf("\t[*] Base Relocation Table At 0x%p Of Size : %d \n\t\t[RVA : 0x%0.8X]\n",
-		(PVOID)(pPeParser->pBase + pPeParser->pImgOptHdr->DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC].VirtualAddress),
-		pPeParser->pImgOptHdr->DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC].Size,
-		pPeParser->pImgOptHdr->DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC].VirtualAddress);
+		pPeParser->pBaseRelocationTable,
+		pPeParser->pImageOptionalHeader->DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC].Size,
+		pPeParser->pImageOptionalHeader->DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC].VirtualAddress);
 
 	printf("\t[*] TLS Directory At 0x%p Of Size : %d \n\t\t[RVA : 0x%0.8X]\n",
-		(PVOID)(pPeParser->pBase + pPeParser->pImgOptHdr->DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS].VirtualAddress),
-		pPeParser->pImgOptHdr->DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS].Size,
-		pPeParser->pImgOptHdr->DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS].VirtualAddress);
+		pPeParser->pTLSDirectory,
+		pPeParser->pImageOptionalHeader->DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS].Size,
+		pPeParser->pImageOptionalHeader->DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS].VirtualAddress);
 
 	printf("\t[*] Import Address Table At 0x%p Of Size : %d \n\t\t[RVA : 0x%0.8X]\n",
-		(PVOID)(pPeParser->pBase + pPeParser->pImgOptHdr->DataDirectory[IMAGE_DIRECTORY_ENTRY_IAT].VirtualAddress),
-		pPeParser->pImgOptHdr->DataDirectory[IMAGE_DIRECTORY_ENTRY_IAT].Size,
-		pPeParser->pImgOptHdr->DataDirectory[IMAGE_DIRECTORY_ENTRY_IAT].VirtualAddress);
+		pPeParser->pImportAddressTable,
+		pPeParser->pImageOptionalHeader->DataDirectory[IMAGE_DIRECTORY_ENTRY_IAT].Size,
+		pPeParser->pImageOptionalHeader->DataDirectory[IMAGE_DIRECTORY_ENTRY_IAT].VirtualAddress);
 	return TRUE;
 }
 
@@ -363,29 +429,29 @@ BOOL PeParserPrintSections(T_PE_PARSER* pPeParser)
 		return FALSE;
 	}
 
-	printf("\n[i] Printing \"%S\" PE Sections:\n", pPeParser->szLoadedFile);
+	printf("\n[i] Printing \"%S\" PE Sections:\n", pPeParser->szLoadedFileName);
 
-	PIMAGE_SECTION_HEADER pImgSectionHdr = pPeParser->pImgSectionHdr;
+	PIMAGE_SECTION_HEADER* ppImgSectionHdr = &pPeParser->pImageSectionHeader;
 
-	for (size_t i = 0; i < pPeParser->pImgNtHdrs->FileHeader.NumberOfSections; i++)
+	for (size_t i = 0; i < pPeParser->pImageNtHeaders->FileHeader.NumberOfSections; i++)
 	{
-		printf("[#] %s \n", (CHAR*)pPeParser->pImgSectionHdr->Name);
-		printf("\tSize : %d \n", pPeParser->pImgSectionHdr->SizeOfRawData);
-		printf("\tRVA : 0x%0.8X \n", pPeParser->pImgSectionHdr->VirtualAddress);
-		printf("\tAddress : 0x%p \n", (PVOID)(pPeParser->pBase + pPeParser->pImgSectionHdr->VirtualAddress));
-		printf("\tRelocations : %d \n", pPeParser->pImgSectionHdr->NumberOfRelocations);
+		printf("[#] %s \n", (CHAR*)pPeParser->pImageSectionHeader->Name);
+		printf("\tSize : %d \n", pPeParser->pImageSectionHeader->SizeOfRawData);
+		printf("\tRVA : 0x%0.8X \n", pPeParser->pImageSectionHeader->VirtualAddress);
+		printf("\tAddress : 0x%p \n", (PVOID)(pPeParser->pRawData + pPeParser->pImageSectionHeader->VirtualAddress));
+		printf("\tRelocations : %d \n", pPeParser->pImageSectionHeader->NumberOfRelocations);
 		printf("\tPermissions : ");
-		if (pPeParser->pImgSectionHdr->Characteristics & IMAGE_SCN_MEM_READ)
+		if (pPeParser->pImageSectionHeader->Characteristics & IMAGE_SCN_MEM_READ)
 			printf("PAGE_READONLY | ");
-		if (pPeParser->pImgSectionHdr->Characteristics & IMAGE_SCN_MEM_WRITE && pPeParser->pImgSectionHdr->Characteristics & IMAGE_SCN_MEM_READ)
+		if (pPeParser->pImageSectionHeader->Characteristics & IMAGE_SCN_MEM_WRITE && pPeParser->pImageSectionHeader->Characteristics & IMAGE_SCN_MEM_READ)
 			printf("PAGE_READWRITE | ");
-		if (pPeParser->pImgSectionHdr->Characteristics & IMAGE_SCN_MEM_EXECUTE)
+		if (pPeParser->pImageSectionHeader->Characteristics & IMAGE_SCN_MEM_EXECUTE)
 			printf("PAGE_EXECUTE | ");
-		if (pPeParser->pImgSectionHdr->Characteristics & IMAGE_SCN_MEM_EXECUTE && pPeParser->pImgSectionHdr->Characteristics & IMAGE_SCN_MEM_READ)
+		if (pPeParser->pImageSectionHeader->Characteristics & IMAGE_SCN_MEM_EXECUTE && pPeParser->pImageSectionHeader->Characteristics & IMAGE_SCN_MEM_READ)
 			printf("PAGE_EXECUTE_READWRITE");
 		printf("\n\n");
 
-		pImgSectionHdr = (PIMAGE_SECTION_HEADER)((PBYTE)pImgSectionHdr + (DWORD)sizeof(IMAGE_SECTION_HEADER));
+		*ppImgSectionHdr = (PIMAGE_SECTION_HEADER)((PBYTE)*ppImgSectionHdr + (DWORD)sizeof(IMAGE_SECTION_HEADER));
 	}
 	return TRUE;
 }
@@ -413,19 +479,12 @@ BOOL PeParserClean(T_PE_PARSER *pPeParser)
 {
 	assert(pPeParser != NULL);
 
-	pPeParser->szLoadedFile[0] = 0;
-	if (pPeParser->pBase)
+	if (pPeParser->pRawData)
 	{
 		if (PeParserHasLoadedFile(pPeParser)) // Only free when the file buffer was loaded
-			HeapFree(GetProcessHeap(), 0, pPeParser->pBase);
-		pPeParser->pBase = NULL;
+			HeapFree(GetProcessHeap(), 0, pPeParser->pRawData);
+		pPeParser->pRawData = NULL;
 	}
-	pPeParser->sSize = 0;
-	pPeParser->pImgDosHdr = NULL;
-	pPeParser->pImgNtHdrs = NULL;
-	pPeParser->pImgFileHdr = NULL;
-	pPeParser->pImgOptHdr = NULL;
-	pPeParser->pImgSectionHdr = NULL;
-	pPeParser->pImgExportDir = NULL;
+	PeParserResetMembers(pPeParser);
 	return TRUE;
 }
